@@ -30,6 +30,10 @@ class BilingualDataset(Dataset):
         enc_input_tokens = self.tokenizer_src.encode(src_text).ids
         dec_input_tokens = self.tokenizer_tgt.encode(tgt_text).ids
 
+        # hack
+        enc_input_tokens = enc_input_tokens[:self.seq_len-2]  # We will add <s> and </s>
+        dec_input_tokens = dec_input_tokens[:self.seq_len-1]  # We will add only <s> token
+
         # Add sos, eos and padding to each sentence
         enc_num_padding_tokens = self.seq_len - len(enc_input_tokens) - 2  # We will add <s> and </s>
         # We will only add <s>, and </s> only on the label
@@ -84,7 +88,7 @@ class BilingualDataset(Dataset):
             "src_text": src_text,
             "tgt_text": tgt_text,
         }
-    
+
 def causal_mask(size):
     mask = torch.triu(torch.ones((1, size, size)), diagonal=1).type(torch.int)
     return mask == 0
