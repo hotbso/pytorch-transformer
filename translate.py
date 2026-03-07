@@ -3,7 +3,7 @@ from config import Config
 from model import build_transformer
 from tokenizers import Tokenizer
 from datasets import load_dataset
-from dataset import BilingualDataset
+from dataset import BilingualDataset, postprocess_wordpiece
 import torch
 import sys
 
@@ -25,7 +25,7 @@ def translate(sentence: str):
     label = ""
     if type(sentence) == int or sentence.isdigit():
         id = int(sentence)
-        ds = load_dataset(f"{config.datasource}", f"{config.lang_src}-{config.lang_tgt}", split='all')
+        ds = load_dataset(f"{config.datasource}", name=config.datasource_name, split='all')
         ds = BilingualDataset(ds, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
         sentence = ds[id]['src_text']
         label = ds[id]["tgt_text"]
@@ -65,15 +65,14 @@ def translate(sentence: str):
             _, next_word = torch.max(prob, dim=1)
             decoder_input = torch.cat([decoder_input, torch.empty(1, 1).type_as(source).fill_(next_word.item()).to(device)], dim=1)
 
-            # print the translated word
-            print(f"{tokenizer_tgt.decode([next_word.item()])}", end=' ')
-
             # break if we predict the end of sentence token
             if next_word == tokenizer_tgt.token_to_id('[EOS]'):
                 break
 
     # convert ids to tokens
-    return tokenizer_tgt.decode(decoder_input[0].tolist())
+    txt = postprocess_wordpiece(tokenizer_tgt.decode(decoder_input[0].tolist()))
+    print(txt)
+    return txt
 
 #read sentence from argument
-translate(sys.argv[1] if len(sys.argv) > 1 else "Das Wetter wird morgen schön und es wird nicht regnen.")
+translate(sys.argv[1] if len(sys.argv) > 1 else "Das Wetter wird morgen schön, es wird nicht regnen und die Sonne scheint.")

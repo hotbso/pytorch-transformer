@@ -92,3 +92,11 @@ class BilingualDataset(Dataset):
 def causal_mask(size):
     mask = torch.triu(torch.ones((1, size, size)), diagonal=1).type(torch.int)
     return mask == 0
+
+def postprocess_wordpiece(text):
+    # Clean up WordPiece tokenization artifacts
+    replacement = [(' ##', ''),(' , ', ', '),(' .', '. '),(' !', '! '),(' ?', '? '),(' ;', '; '),(' :', ': '),(' - ', '-')]
+    for old, new in replacement:
+        text = text.replace(old, new)
+
+    return text

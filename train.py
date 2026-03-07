@@ -1,11 +1,10 @@
 from model import build_transformer
-from dataset import BilingualDataset, causal_mask
+from dataset import BilingualDataset, causal_mask, postprocess_wordpiece
 from config import Config
 
-#import torchtext.datasets as datasets
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import DataLoader, random_split
 from torch.optim.lr_scheduler import LambdaLR
 
 import warnings
@@ -53,8 +52,7 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
 
     return decoder_input.squeeze(0)
 
-
-def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, print_msg, global_step, writer, num_examples=2):
+def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, print_msg, global_step, writer, num_examples=3):
     model.eval()
     count = 0
 
@@ -86,6 +84,7 @@ def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, 
             source_text = batch["src_text"][0]
             target_text = batch["tgt_text"][0]
             model_out_text = tokenizer_tgt.decode(model_out.detach().cpu().numpy())
+            model_out_text = postprocess_wordpiece(model_out_text)
 
             source_texts.append(source_text)
             expected.append(target_text)
@@ -139,9 +138,7 @@ def get_or_build_tokenizer(config, ds, lang):
     return tokenizer
 
 def get_ds(config):
-    # It only has the train split, so we divide it overselves
-    #ds_raw = load_dataset(f"{config['datasource']}", f"{config['lang_src']}-{config['lang_tgt']}", split='train')
-    ds_raw = load_dataset(f"{config.datasource}", split='train')
+    ds_raw = load_dataset(f"{config.datasource}", name=config.datasource_name, split='train')
 
     # Build tokenizers
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config.lang_src)

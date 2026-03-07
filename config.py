@@ -9,6 +9,7 @@ class Config:
         self.d_model = 512
         self.datasource = "Yujivus/wmt14-de-en-50k-no-hospital"
         self.datasource_base = "wmt14-de-en-50k-no-hospital"
+        self.datasource_name = None
          #self.datasource = 'opus_books'
          #self.datasource_base = 'opus_books'
         self.lang_src = "de"
