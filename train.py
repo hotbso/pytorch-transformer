@@ -249,7 +249,7 @@ def train_model(config):
             # Compute the loss using a simple cross entropy
             loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
             r_loss += loss.item()
-            batch_iterator.set_postfix({"loss": f"{r_loss / (batch_idx + 1):6.3f}"})
+            batch_iterator.set_postfix({"loss": f"{loss:6.3f} | {r_loss / (batch_idx + 1):6.3f}"})
             batch_idx += 1
 
             # Log the loss

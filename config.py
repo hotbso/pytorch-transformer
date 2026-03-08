@@ -9,15 +9,17 @@ class Config:
         self.lr = 1.4 * 10**-4 # was 1e-4
         self.seq_len = 70
         self.d_model = 512
-        self.datasource = "Yujivus/wmt14-de-en-50k-no-hospital"
-        self.datasource_name = None
-        self.lang_src = "de"
-        self.lang_tgt = "en"
-        self.model_folder = "wmt14-de-en-50k-no-hospital_weights"
         self.model_basename = "tmodel_"
         self.preload = "latest"
-        self.tokenizer_file = self.model_folder + "/tokenizer_{0}.json"
         self.experiment_name = "runs/tmodel"
+
+        self.datasource = "Yujivus/wmt14-de-en-50k-no-hospital"
+        self.datasource_name = None
+        self.model_folder = "wmt14-de-en-50k-no-hospital_weights"
+        self.lang_src = "de"
+        self.lang_tgt = "en"
+
+        self.tokenizer_file = self.model_folder + "/tokenizer_{0}.json"
 
     def get_hf_token(self):
         with open('hf_token.txt', 'r') as f:
