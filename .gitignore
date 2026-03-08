@@ -1,6 +1,8 @@
 __pycache__
 *.pt
 *.json
+hf_token.txt
+
 runs/
 weights/
 

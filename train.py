@@ -138,7 +138,7 @@ def get_or_build_tokenizer(config, ds, lang):
     return tokenizer
 
 def get_ds(config):
-    ds_raw = load_dataset(f"{config.datasource}", name=config.datasource_name, split='train')
+    ds_raw = load_dataset(f"{config.datasource}", name=config.datasource_name, split='train', token = config.hf_token)
 
     # Build tokenizers
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config.lang_src)
@@ -198,7 +198,7 @@ def train_model(config):
     device = torch.device(device)
 
     # Make sure the weights folder exists
-    Path(f"{config.datasource_base}_{config.model_folder}").mkdir(parents=True, exist_ok=True)
+    Path(config.model_folder).mkdir(parents=True, exist_ok=True)
 
     train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_ds(config)
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size()).to(device)
