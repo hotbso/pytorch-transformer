@@ -15,8 +15,8 @@ from pathlib import Path
 # Huggingface datasets and tokenizers
 from datasets import load_dataset
 from tokenizers import Tokenizer
-from tokenizers.models import WordLevel, WordPiece
-from tokenizers.trainers import WordLevelTrainer, WordPieceTrainer
+from tokenizers.models import WordLevel, WordPiece, BPE
+from tokenizers.trainers import WordLevelTrainer, WordPieceTrainer, BpeTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
 import torchmetrics
@@ -138,7 +138,7 @@ def get_or_build_tokenizer(config, ds, lang):
     return tokenizer
 
 def get_ds(config):
-    ds_raw = load_dataset(f"{config.datasource}", name=config.datasource_name, split='train', token = config.hf_token)
+    ds_raw = load_dataset(f"{config.datasource}", name=config.datasource_name, split='train', data_files=config.data_files,token = config.hf_token)
 
     # Build tokenizers
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config.lang_src)
@@ -205,7 +205,7 @@ def train_model(config):
     # Tensorboard
     writer = SummaryWriter(config.experiment_name)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, eps=1e-9)
+    optimizer = torch.optim.RAdam(model.parameters(), lr=config.lr, eps=1e-9)
 
     # If the user specified a model to preload before training, load it
     initial_epoch = 0

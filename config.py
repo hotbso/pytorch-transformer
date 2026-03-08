@@ -4,18 +4,26 @@ class Config:
     def __init__(self):
         self.get_hf_token()
 
-        self.batch_size = 16   # was 8
+        self.batch_size = 64   # was 8
         self.num_epochs = 20
-        self.lr = 1.4 * 10**-4 # was 1e-4
+        self.lr = 1.4 * 2 * 10**-4 # was 1e-4
         self.seq_len = 70
         self.d_model = 512
         self.model_basename = "tmodel_"
         self.preload = "latest"
         self.experiment_name = "runs/tmodel"
 
-        self.datasource = "Yujivus/wmt14-de-en-50k-no-hospital"
-        self.datasource_name = None
-        self.model_folder = "wmt14-de-en-50k-no-hospital_weights"
+        if False:
+            self.datasource = "Yujivus/wmt14-de-en-50k-no-hospital"
+            self.datasource_name = None
+            self.data_files =None
+            self.model_folder = "wmt14-de-en-50k-no-hospital_weights"
+        else:
+            self.datasource = "parquet"
+            self.datasource_name = None
+            self.data_files = "opus-100-de-en-200k/train.parquet"
+            self.model_folder = "opus-100-de-en-200k"
+
         self.lang_src = "de"
         self.lang_tgt = "en"
 
