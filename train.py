@@ -52,7 +52,7 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
 
     return decoder_input.squeeze(0)
 
-def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, print_msg, global_step, writer, num_examples=5):
+def run_validation(model, loss_fn, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, epoch, global_step, writer, num_examples=5):
     model.eval()
     count = 0
 
@@ -69,6 +69,33 @@ def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, 
         # If we can't get the console width, use 80 as default
         console_width = 80
 
+    batch_iterator = tqdm(validation_ds, desc=f"Validating Epoch {epoch:02d}")
+    avg_loss = 0
+    n_items = 0
+
+    with torch.no_grad():
+        for batch in batch_iterator:
+            encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
+            decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
+            encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
+            decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
+
+            # Run the tensors through the encoder, decoder and the projection layer
+            encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
+            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
+            proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
+
+            # Compare the output with the label
+            label = batch['label'].to(device) # (B, seq_len)
+
+            # Compute the loss using a simple cross entropy
+            loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
+            avg_loss += loss.item()
+            n_items += 1
+            batch_iterator.set_postfix({"avg_loss": f"{avg_loss / n_items:6.3f}"})
+
+    return
+
     with torch.no_grad():
         for batch in validation_ds:
             count += 1
@@ -76,8 +103,7 @@ def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, 
             encoder_mask = batch["encoder_mask"].to(device) # (b, 1, 1, seq_len)
 
             # check that the batch size is 1
-            assert encoder_input.size(
-                0) == 1, "Batch size must be 1 for validation"
+            assert encoder_input.size(0) == 1, "Batch size must be 1 for validation"
 
             model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_src, tokenizer_tgt, max_len, device)
 
@@ -137,7 +163,7 @@ def get_or_build_tokenizer(config, ds, lang):
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
     return tokenizer
 
-def get_ds_raw(config):
+def get_ds(config):
     ds_raw = load_dataset(config.datasource, name=config.datasource_name, split='train', data_files=config.data_files, token = config.hf_token)
 
     # Build tokenizers
@@ -178,8 +204,10 @@ def get_ds_raw(config):
         print(f'Max length of target sentence: {max_len_tgt}')
         print(f'Number of long sentences:      {n_long_sentences} of {n_sentences}, {n_long_sentences / n_sentences:.2%}')
 
-    return train_ds_raw, val_ds_raw, tokenizer_src, tokenizer_tgt
+    val_ds = BilingualDataset(val_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
+    train_ds = BilingualDataset(train_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
 
+    return train_ds, val_ds, tokenizer_src, tokenizer_tgt
 
 def get_model(config, vocab_src_len, vocab_tgt_len):
     model = build_transformer(vocab_src_len, vocab_tgt_len, config.seq_len, config.seq_len, d_model=config.d_model)
@@ -203,11 +231,8 @@ def train_model(config):
     # Make sure the weights folder exists
     Path(config.model_folder).mkdir(parents=True, exist_ok=True)
 
-    train_ds_raw, val_ds_raw, tokenizer_src, tokenizer_tgt = get_ds_raw(config)
-    val_ds = BilingualDataset(val_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
-    train_ds = BilingualDataset(train_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
-
-    val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
+    train_ds, val_ds, tokenizer_src, tokenizer_tgt = get_ds(config)
+    val_dataloader = DataLoader(val_ds, batch_size=config.batch_size, shuffle=True)
 
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size()).to(device)
     # Tensorboard
@@ -233,11 +258,13 @@ def train_model(config):
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
+    run_validation(model, loss_fn, val_dataloader, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, global_step, writer)
+
     for epoch in range(initial_epoch, initial_epoch + config.num_epochs):
         train_sampler = RandomSampler(
-            train_ds_raw,
+            train_ds,
             replacement = False,
-            num_samples = int(len(train_ds_raw) * 0.2)
+            num_samples = int(len(train_ds) * 0.2)
         )
 
         train_dataloader = DataLoader(train_ds, batch_size=config.batch_size, sampler=train_sampler)
@@ -284,7 +311,7 @@ def train_model(config):
             global_step += 1
 
         # Run validation at the end of every epoch
-        run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config.seq_len, device, lambda msg: batch_iterator.write(msg), global_step, writer)
+        run_validation(model, loss_fn, val_dataloader, tokenizer_src, tokenizer_tgt, config.seq_len, device, epoch, global_step, writer)
 
         # Save the model at the end of every epoch
         batch_iterator.write("Saving model...")
