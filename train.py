@@ -52,13 +52,8 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
 
     return decoder_input.squeeze(0)
 
-def run_validation(model, loss_fn, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, epoch, global_step, writer, num_examples=5):
+def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len, device, epoch, writer, num_examples=10):
     model.eval()
-    count = 0
-
-    source_texts = []
-    expected = []
-    predicted = []
 
     try:
         # get the console window width
@@ -69,11 +64,13 @@ def run_validation(model, loss_fn, validation_ds, tokenizer_src, tokenizer_tgt, 
         # If we can't get the console width, use 80 as default
         console_width = 80
 
-    batch_iterator = tqdm(validation_ds, desc=f"Validating Epoch {epoch:02d}")
-    avg_loss = 0
-    n_items = 0
 
     with torch.no_grad():
+        val_dl = DataLoader(val_ds, batch_size=config.batch_size, shuffle=True)
+        batch_iterator = tqdm(val_dl, desc=f"Validating Epoch {epoch:02d}")
+        avg_loss = 0
+        n_items = 0
+
         for batch in batch_iterator:
             encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
             decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
@@ -94,10 +91,18 @@ def run_validation(model, loss_fn, validation_ds, tokenizer_src, tokenizer_tgt, 
             n_items += 1
             batch_iterator.set_postfix({"avg_loss": f"{avg_loss / n_items:6.3f}"})
 
-    return
+        writer.add_scalar('validation loss', avg_loss / n_items, epoch)
+        writer.flush()
 
-    with torch.no_grad():
-        for batch in validation_ds:
+        count = 0
+
+        source_texts = []
+        expected = []
+        predicted = []
+
+        val_dl = DataLoader(val_ds, batch_size=1, shuffle=True)
+
+        for batch in val_dl:
             count += 1
             encoder_input = batch["encoder_input"].to(device) # (b, seq_len)
             encoder_mask = batch["encoder_mask"].to(device) # (b, 1, 1, seq_len)
@@ -117,13 +122,13 @@ def run_validation(model, loss_fn, validation_ds, tokenizer_src, tokenizer_tgt, 
             predicted.append(model_out_text)
 
             # Print the source, target and model output
-            print_msg('-'*console_width)
-            print_msg(f"{f'SOURCE: ':>12}{source_text}")
-            print_msg(f"{f'TARGET: ':>12}{target_text}")
-            print_msg(f"{f'PREDICTED: ':>12}{model_out_text}")
+            print('-'*console_width)
+            print(f"{f'SOURCE: ':>12}{source_text}")
+            print(f"{f'TARGET: ':>12}{target_text}")
+            print(f"{f'PREDICTED: ':>12}{model_out_text}")
 
             if count == num_examples:
-                print_msg('-'*console_width)
+                print('-'*console_width)
                 break
 
     if writer:
@@ -131,19 +136,19 @@ def run_validation(model, loss_fn, validation_ds, tokenizer_src, tokenizer_tgt, 
         # Compute the char error rate
         metric = torchmetrics.CharErrorRate()
         cer = metric(predicted, expected)
-        writer.add_scalar('validation cer', cer, global_step)
+        writer.add_scalar('validation cer', cer, epoch)
         writer.flush()
 
         # Compute the word error rate
         metric = torchmetrics.WordErrorRate()
         wer = metric(predicted, expected)
-        writer.add_scalar('validation wer', wer, global_step)
+        writer.add_scalar('validation wer', wer, epoch)
         writer.flush()
 
         # Compute the BLEU metric
         metric = torchmetrics.BLEUScore()
         bleu = metric(predicted, expected)
-        writer.add_scalar('validation BLEU', bleu, global_step)
+        writer.add_scalar('validation BLEU', bleu, epoch)
         writer.flush()
 
 def get_all_sentences(ds, lang):
@@ -232,7 +237,6 @@ def train_model(config):
     Path(config.model_folder).mkdir(parents=True, exist_ok=True)
 
     train_ds, val_ds, tokenizer_src, tokenizer_tgt = get_ds(config)
-    val_dataloader = DataLoader(val_ds, batch_size=config.batch_size, shuffle=True)
 
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size()).to(device)
     # Tensorboard
@@ -258,7 +262,7 @@ def train_model(config):
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
-    run_validation(model, loss_fn, val_dataloader, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, global_step, writer)
+    #run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
 
     for epoch in range(initial_epoch, initial_epoch + config.num_epochs):
         train_sampler = RandomSampler(
@@ -311,7 +315,7 @@ def train_model(config):
             global_step += 1
 
         # Run validation at the end of every epoch
-        run_validation(model, loss_fn, val_dataloader, tokenizer_src, tokenizer_tgt, config.seq_len, device, epoch, global_step, writer)
+        run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, epoch, writer)
 
         # Save the model at the end of every epoch
         batch_iterator.write("Saving model...")
