@@ -4,7 +4,7 @@ from config import Config
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, RandomSampler, random_split
 from torch.optim.lr_scheduler import LambdaLR
 
 import warnings
@@ -52,7 +52,7 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
 
     return decoder_input.squeeze(0)
 
-def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, print_msg, global_step, writer, num_examples=3):
+def run_validation(model, validation_ds, tokenizer_src, tokenizer_tgt, max_len, device, print_msg, global_step, writer, num_examples=5):
     model.eval()
     count = 0
 
@@ -130,53 +130,56 @@ def get_or_build_tokenizer(config, ds, lang):
         # Most code taken from: https://huggingface.co/docs/tokenizers/quicktour
         tokenizer = Tokenizer(WordPiece(unk_token="[UNK]"))
         tokenizer.pre_tokenizer = Whitespace()
-        trainer = WordPieceTrainer(special_tokens=["[UNK]", "[PAD]", "[SOS]", "[EOS]"], vocab_size=25000) #, min_frequency=0)
+        trainer = WordPieceTrainer(special_tokens=["[UNK]", "[PAD]", "[SOS]", "[EOS]"], vocab_size=25000, min_frequency=3)
         tokenizer.train_from_iterator(get_all_sentences(ds, lang), trainer=trainer)
         tokenizer.save(str(tokenizer_path))
     else:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
     return tokenizer
 
-def get_ds(config):
-    ds_raw = load_dataset(f"{config.datasource}", name=config.datasource_name, split='train', data_files=config.data_files,token = config.hf_token)
+def get_ds_raw(config):
+    ds_raw = load_dataset(config.datasource, name=config.datasource_name, split='train', data_files=config.data_files, token = config.hf_token)
 
     # Build tokenizers
     tokenizer_src = get_or_build_tokenizer(config, ds_raw, config.lang_src)
     tokenizer_tgt = get_or_build_tokenizer(config, ds_raw, config.lang_tgt)
 
-    # Keep 90% for training, 10% for validation
-    train_ds_size = int(0.9 * len(ds_raw))
-    val_ds_size = len(ds_raw) - train_ds_size
-    train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
+    try:
+        val_ds_raw = load_dataset(config.datasource, name=config.datasource_name, split='validation', data_files=config.data_files, token = config.hf_token)
+    except:
+        val_ds_raw = None
 
-    train_ds = BilingualDataset(train_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
-    val_ds = BilingualDataset(val_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
+    if val_ds_raw is None:
+        print("No validation dataset found, splitting the training dataset into train and validation sets...")
+        # Keep 90% for training, 10% for validation
+        train_ds_size = int(0.9 * len(ds_raw))
+        val_ds_size = len(ds_raw) - train_ds_size
+        train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
+    else:
+        train_ds_raw = ds_raw
 
-    # Find the maximum length of each sentence in the source and target sentence
-    max_len_src = 0
-    max_len_tgt = 0
+    if False:
+        # Find the maximum length of each sentence in the source and target sentence
+        max_len_src = 0
+        max_len_tgt = 0
 
-    n_long_sentences = 0
-    n_sentences = 0
-    for item in ds_raw:
-        src_ids = tokenizer_src.encode(item['translation'][config.lang_src]).ids
-        tgt_ids = tokenizer_tgt.encode(item['translation'][config.lang_tgt]).ids
-        max_len_src = max(max_len_src, len(src_ids))
-        max_len_tgt = max(max_len_tgt, len(tgt_ids))
-        n_sentences += 1
-        if len(src_ids) > config.seq_len - 2 or len(tgt_ids) > config.seq_len - 1:
-            n_long_sentences += 1
+        n_long_sentences = 0
+        n_sentences = 0
+        for item in ds_raw:
+            src_ids = tokenizer_src.encode(item['translation'][config.lang_src]).ids
+            tgt_ids = tokenizer_tgt.encode(item['translation'][config.lang_tgt]).ids
+            max_len_src = max(max_len_src, len(src_ids))
+            max_len_tgt = max(max_len_tgt, len(tgt_ids))
+            n_sentences += 1
+            if len(src_ids) > config.seq_len - 2 or len(tgt_ids) > config.seq_len - 1:
+                n_long_sentences += 1
 
-    print(f'Max length of source sentence: {max_len_src}')
-    print(f'Max length of target sentence: {max_len_tgt}')
-    print(f'Number of long sentences:      {n_long_sentences} of {n_sentences}, {n_long_sentences / n_sentences:.2%}')
+        print(f'Max length of source sentence: {max_len_src}')
+        print(f'Max length of target sentence: {max_len_tgt}')
+        print(f'Number of long sentences:      {n_long_sentences} of {n_sentences}, {n_long_sentences / n_sentences:.2%}')
 
-    #max_len_src
+    return train_ds_raw, val_ds_raw, tokenizer_src, tokenizer_tgt
 
-    train_dataloader = DataLoader(train_ds, batch_size=config.batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
-
-    return train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt
 
 def get_model(config, vocab_src_len, vocab_tgt_len):
     model = build_transformer(vocab_src_len, vocab_tgt_len, config.seq_len, config.seq_len, d_model=config.d_model)
@@ -200,12 +203,17 @@ def train_model(config):
     # Make sure the weights folder exists
     Path(config.model_folder).mkdir(parents=True, exist_ok=True)
 
-    train_dataloader, val_dataloader, tokenizer_src, tokenizer_tgt = get_ds(config)
+    train_ds_raw, val_ds_raw, tokenizer_src, tokenizer_tgt = get_ds_raw(config)
+    val_ds = BilingualDataset(val_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
+    train_ds = BilingualDataset(train_ds_raw, tokenizer_src, tokenizer_tgt, config.lang_src, config.lang_tgt, config.seq_len)
+
+    val_dataloader = DataLoader(val_ds, batch_size=1, shuffle=True)
+
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size()).to(device)
     # Tensorboard
     writer = SummaryWriter(config.experiment_name)
 
-    optimizer = torch.optim.RAdam(model.parameters(), lr=config.lr, eps=1e-9)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, eps=1e-9)
 
     # If the user specified a model to preload before training, load it
     initial_epoch = 0
@@ -219,20 +227,29 @@ def train_model(config):
         initial_epoch = state['epoch'] + 1
         optimizer.load_state_dict(state['optimizer_state_dict'])
         global_step = state['global_step']
-        print("Model preloaded successfully")
+        print(f"Model preloaded successfully, starting from epoch {initial_epoch} and global step {global_step}")
     else:
         print('No model to preload, starting from scratch')
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
     for epoch in range(initial_epoch, initial_epoch + config.num_epochs):
+        train_sampler = RandomSampler(
+            train_ds_raw,
+            replacement = False,
+            num_samples = int(len(train_ds_raw) * 0.2)
+        )
+
+        train_dataloader = DataLoader(train_ds, batch_size=config.batch_size, sampler=train_sampler)
+
         torch.cuda.empty_cache()
         model.train()
         batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
-        r_loss = 0
-        batch_idx = 0
-        for batch in batch_iterator:
 
+        loss_smooth_alpha = 0.02
+        smoothed_loss = 0
+
+        for batch in batch_iterator:
             encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
             decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
             encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
@@ -248,9 +265,10 @@ def train_model(config):
 
             # Compute the loss using a simple cross entropy
             loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
-            r_loss += loss.item()
-            batch_iterator.set_postfix({"loss": f"{loss:6.3f} | {r_loss / (batch_idx + 1):6.3f}"})
-            batch_idx += 1
+            if global_step == 0:
+                smoothed_loss = loss.item()
+            smoothed_loss = loss_smooth_alpha * loss.item() + (1 - loss_smooth_alpha) * smoothed_loss
+            batch_iterator.set_postfix({"loss": f"{loss:6.3f} | {smoothed_loss:6.3f}"})
 
             # Log the loss
             writer.add_scalar('train loss', loss.item(), global_step)
@@ -269,6 +287,8 @@ def train_model(config):
         run_validation(model, val_dataloader, tokenizer_src, tokenizer_tgt, config.seq_len, device, lambda msg: batch_iterator.write(msg), global_step, writer)
 
         # Save the model at the end of every epoch
+        batch_iterator.write("Saving model...")
+
         model_filename = config.get_weights_file_path(f"{epoch:02d}")
         torch.save({
             'epoch': epoch,
@@ -276,7 +296,6 @@ def train_model(config):
             'optimizer_state_dict': optimizer.state_dict(),
             'global_step': global_step
         }, model_filename)
-
 
 if __name__ == '__main__':
     warnings.filterwarnings("ignore")

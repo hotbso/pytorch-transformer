@@ -19,10 +19,10 @@ class Config:
             self.data_files =None
             self.model_folder = "wmt14-de-en-50k-no-hospital_weights"
         else:
-            self.datasource = "parquet"
-            self.datasource_name = None
-            self.data_files = "opus-100-de-en-200k/train.parquet"
-            self.model_folder = "opus-100-de-en-200k"
+            self.datasource = "Helsinki-NLP/opus-100"
+            self.datasource_name = "de-en"
+            self.data_files = None
+            self.model_folder = "opus-100-de-en"
 
         self.lang_src = "de"
         self.lang_tgt = "en"
