@@ -13,11 +13,11 @@ class Config:
         self.preload = "latest"
         self.experiment_name = "runs/tmodel"
 
-        if False:
-            self.datasource = "Yujivus/wmt14-de-en-50k-no-hospital"
+        if True:
+            self.datasource = "combined-de-en-1000k"
             self.datasource_name = None
             self.data_files =None
-            self.model_folder = "wmt14-de-en-50k-no-hospital_weights"
+            self.model_folder = "combined-de-en-1000k"
         else:
             self.datasource = "Helsinki-NLP/opus-100"
             self.datasource_name = "de-en"

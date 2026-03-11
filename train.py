@@ -1,3 +1,7 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 from model import build_transformer
 from dataset import BilingualDataset, causal_mask, postprocess_wordpiece
 from config import Config
@@ -9,7 +13,6 @@ from torch.optim.lr_scheduler import LambdaLR
 
 import warnings
 from tqdm import tqdm
-import os
 from pathlib import Path
 
 # Huggingface datasets and tokenizers
@@ -66,7 +69,7 @@ def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len
 
 
     with torch.no_grad():
-        val_dl = DataLoader(val_ds, batch_size=config.batch_size, shuffle=True)
+        val_dl = DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
         batch_iterator = tqdm(val_dl, desc=f"Validating Epoch {epoch:02d}")
         avg_loss = 0
         n_items = 0
@@ -95,11 +98,9 @@ def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len
         writer.flush()
 
         count = 0
-
         source_texts = []
         expected = []
         predicted = []
-
         val_dl = DataLoader(val_ds, batch_size=1, shuffle=True)
 
         for batch in val_dl:
@@ -118,38 +119,44 @@ def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len
             model_out_text = postprocess_wordpiece(model_out_text)
 
             source_texts.append(source_text)
-            expected.append(target_text)
+            expected.append([target_text])
             predicted.append(model_out_text)
 
-            # Print the source, target and model output
-            print('-'*console_width)
-            print(f"{f'SOURCE: ':>12}{source_text}")
-            print(f"{f'TARGET: ':>12}{target_text}")
-            print(f"{f'PREDICTED: ':>12}{model_out_text}")
-
-            if count == num_examples:
+            if count <= num_examples:
+                # Print the source, target and model output
                 print('-'*console_width)
+                print(f"{f'SOURCE: ':>12}{source_text}")
+                print(f"{f'TARGET: ':>12}{target_text}")
+                print(f"{f'PREDICTED: ':>12}{model_out_text}")
+
+            if count > 100:
                 break
 
+        print('-'*console_width)
+
     if writer:
-        # Evaluate the character error rate
-        # Compute the char error rate
-        metric = torchmetrics.CharErrorRate()
-        cer = metric(predicted, expected)
-        writer.add_scalar('validation cer', cer, epoch)
-        writer.flush()
+        if False:
+            # Evaluate the character error rate
+            # Compute the char error rate
+            metric = torchmetrics.CharErrorRate()
+            cer = metric(predicted, expected)
+            writer.add_scalar('validation cer', cer, epoch)
+            writer.flush()
 
-        # Compute the word error rate
-        metric = torchmetrics.WordErrorRate()
-        wer = metric(predicted, expected)
-        writer.add_scalar('validation wer', wer, epoch)
-        writer.flush()
+            # Compute the word error rate
+            metric = torchmetrics.WordErrorRate()
+            wer = metric(predicted, expected)
+            writer.add_scalar('validation wer', wer, epoch)
+            writer.flush()
 
+        #print(expected[:10])
+        #print(predicted[:10])
         # Compute the BLEU metric
         metric = torchmetrics.BLEUScore()
-        bleu = metric(predicted, expected)
+        bleu = metric(predicted, expected) * 100
         writer.add_scalar('validation BLEU', bleu, epoch)
         writer.flush()
+        print(f"BLEU score: {bleu:.4f}")
 
 def get_all_sentences(ds, lang):
     for item in ds:
@@ -182,10 +189,9 @@ def get_ds(config):
 
     if val_ds_raw is None:
         print("No validation dataset found, splitting the training dataset into train and validation sets...")
-        # Keep 90% for training, 10% for validation
-        train_ds_size = int(0.9 * len(ds_raw))
+        train_ds_size = int(0.98 * len(ds_raw))
         val_ds_size = len(ds_raw) - train_ds_size
-        train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size])
+        train_ds_raw, val_ds_raw = random_split(ds_raw, [train_ds_size, val_ds_size], generator=torch.Generator().manual_seed(320))
     else:
         train_ds_raw = ds_raw
 
@@ -239,6 +245,9 @@ def train_model(config):
     train_ds, val_ds, tokenizer_src, tokenizer_tgt = get_ds(config)
 
     model = get_model(config, tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size()).to(device)
+    params = sum(p.numel() for p in model.parameters())
+    print(f'Model has {params:,} parameters')
+
     # Tensorboard
     writer = SummaryWriter(config.experiment_name)
 
@@ -268,7 +277,7 @@ def train_model(config):
         train_sampler = RandomSampler(
             train_ds,
             replacement = False,
-            num_samples = int(len(train_ds) * 0.2)
+            num_samples = int(len(train_ds) * 0.25)
         )
 
         train_dataloader = DataLoader(train_ds, batch_size=config.batch_size, sampler=train_sampler)
