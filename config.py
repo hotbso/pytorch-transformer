@@ -14,10 +14,10 @@ class Config:
         self.experiment_name = "runs/tmodel"
 
         if True:
-            self.datasource = "combined-de-en-1000k"
-            self.datasource_name = None
+            self.datasource = "wmt/wmt14"
+            self.datasource_name = "de-en"
             self.data_files =None
-            self.model_folder = "combined-de-en-1000k"
+            self.model_folder = "wmt-wmt14"
         else:
             self.datasource = "Helsinki-NLP/opus-100"
             self.datasource_name = "de-en"

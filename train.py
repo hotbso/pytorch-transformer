@@ -17,6 +17,7 @@ from pathlib import Path
 
 # Huggingface datasets and tokenizers
 from datasets import load_dataset
+import tokenizers
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel, WordPiece, BPE
 from tokenizers.trainers import WordLevelTrainer, WordPieceTrainer, BpeTrainer
@@ -173,6 +174,8 @@ def get_or_build_tokenizer(config, ds, lang):
         tokenizer.save(str(tokenizer_path))
     else:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
+
+    tokenizer.decoder = tokenizers.decoders.WordPiece()
     return tokenizer
 
 def get_ds(config):
@@ -271,13 +274,14 @@ def train_model(config):
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
-    #run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
+    run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
 
     for epoch in range(initial_epoch, initial_epoch + config.num_epochs):
         train_sampler = RandomSampler(
             train_ds,
             replacement = False,
-            num_samples = int(len(train_ds) * 0.25)
+            num_samples = 250000
+            #num_samples = int(len(train_ds) * 0.25)
         )
 
         train_dataloader = DataLoader(train_ds, batch_size=config.batch_size, sampler=train_sampler)
@@ -286,7 +290,7 @@ def train_model(config):
         model.train()
         batch_iterator = tqdm(train_dataloader, desc=f"Processing Epoch {epoch:02d}")
 
-        loss_smooth_alpha = 0.02
+        loss_smooth_alpha = 0.015
         smoothed_loss = 0
 
         for batch in batch_iterator:

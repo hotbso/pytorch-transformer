@@ -1,6 +1,7 @@
 from pathlib import Path
 from config import Config
 from model import build_transformer
+import tokenizers
 from tokenizers import Tokenizer
 from datasets import load_dataset
 from dataset import BilingualDataset, postprocess_wordpiece
@@ -14,6 +15,8 @@ def translate(sentence: str):
     config = Config()
     tokenizer_src = Tokenizer.from_file(str(Path(config.tokenizer_file.format(config.lang_src))))
     tokenizer_tgt = Tokenizer.from_file(str(Path(config.tokenizer_file.format(config.lang_tgt))))
+    tokenizer_tgt.decoder = tokenizers.decoders.WordPiece()
+
     model = build_transformer(tokenizer_src.get_vocab_size(), tokenizer_tgt.get_vocab_size(), config.seq_len, config.seq_len, d_model=config.d_model).to(device)
 
     # Load the pretrained weights

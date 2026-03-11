@@ -94,10 +94,8 @@ def causal_mask(size):
     return mask == 0
 
 def postprocess_wordpiece(text):
-    # Clean up WordPiece tokenization artifacts
-    replacement = [(' ##', ''),(' , ', ', '),(' .', '.'),(' !', '! '),(' ?', '? '),(' ;', '; '),(' :', ': '),(' - ', '-'),
-                   (' ( ', ' ('), (' ) ', ') '), (' [ ', ' ['), (' ] ', '] '), (' { ', ' {'), (' } ', '} '),
-                   (" ' ", "'"), (' " ', '" ')]
+    # Clean up remaining WordPiece tokenization artifacts
+    replacement = [(" ' s ",  "'s ")]
     for old, new in replacement:
         text = text.replace(old, new)
 
