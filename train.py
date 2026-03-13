@@ -130,7 +130,7 @@ def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len
                 print(f"{f'TARGET: ':>12}{target_text}")
                 print(f"{f'PREDICTED: ':>12}{model_out_text}")
 
-            if count > 100:
+            if count > 200:
                 break
 
         print('-'*console_width)
@@ -274,7 +274,7 @@ def train_model(config):
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
-    run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
+    #run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
 
     for epoch in range(initial_epoch, initial_epoch + config.num_epochs):
         train_sampler = RandomSampler(
