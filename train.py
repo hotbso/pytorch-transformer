@@ -76,15 +76,16 @@ def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len
         n_items = 0
 
         for batch in batch_iterator:
-            encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
-            decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
-            encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
-            decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+                encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
+                decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
+                encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
+                decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
 
-            # Run the tensors through the encoder, decoder and the projection layer
-            encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
-            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
-            proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
+                # Run the tensors through the encoder, decoder and the projection layer
+                encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
+                decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
+                proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
 
             # Compare the output with the label
             label = batch['label'].to(device) # (B, seq_len)
@@ -106,13 +107,14 @@ def run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, max_len
 
         for batch in val_dl:
             count += 1
-            encoder_input = batch["encoder_input"].to(device) # (b, seq_len)
-            encoder_mask = batch["encoder_mask"].to(device) # (b, 1, 1, seq_len)
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+                encoder_input = batch["encoder_input"].to(device) # (b, seq_len)
+                encoder_mask = batch["encoder_mask"].to(device) # (b, 1, 1, seq_len)
 
-            # check that the batch size is 1
-            assert encoder_input.size(0) == 1, "Batch size must be 1 for validation"
+                # check that the batch size is 1
+                assert encoder_input.size(0) == 1, "Batch size must be 1 for validation"
 
-            model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_src, tokenizer_tgt, max_len, device)
+                model_out = greedy_decode(model, encoder_input, encoder_mask, tokenizer_src, tokenizer_tgt, max_len, device)
 
             source_text = batch["src_text"][0]
             target_text = batch["tgt_text"][0]
@@ -274,7 +276,7 @@ def train_model(config):
 
     loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer_src.token_to_id('[PAD]'), label_smoothing=0.1).to(device)
 
-    #run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
+    run_validation(model, loss_fn, val_ds, tokenizer_src, tokenizer_tgt, config.seq_len, device, initial_epoch, writer)
 
     for epoch in range(initial_epoch, initial_epoch + config.num_epochs):
         train_sampler = RandomSampler(
