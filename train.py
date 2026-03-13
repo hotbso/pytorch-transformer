@@ -294,23 +294,22 @@ def train_model(config):
         smoothed_loss = 0
 
         for batch in batch_iterator:
-            encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
-            decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
-            encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
-            decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
+                encoder_input = batch['encoder_input'].to(device) # (b, seq_len)
+                decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
+                encoder_mask = batch['encoder_mask'].to(device) # (B, 1, 1, seq_len)
+                decoder_mask = batch['decoder_mask'].to(device) # (B, 1, seq_len, seq_len)
 
-            # Run the tensors through the encoder, decoder and the projection layer
-            encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
-            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
-            proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
+                # Run the tensors through the encoder, decoder and the projection layer
+                encoder_output = model.encode(encoder_input, encoder_mask) # (B, seq_len, d_model)
+                decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask) # (B, seq_len, d_model)
+                proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
 
             # Compare the output with the label
             label = batch['label'].to(device) # (B, seq_len)
 
             # Compute the loss using a simple cross entropy
             loss = loss_fn(proj_output.view(-1, tokenizer_tgt.get_vocab_size()), label.view(-1))
-            if global_step == 0:
-                smoothed_loss = loss.item()
             smoothed_loss = loss_smooth_alpha * loss.item() + (1 - loss_smooth_alpha) * smoothed_loss
             batch_iterator.set_postfix({"loss": f"{loss:6.3f} | {smoothed_loss:6.3f}"})
 
